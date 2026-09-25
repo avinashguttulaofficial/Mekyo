@@ -43,10 +43,20 @@ export const AdminPromptForm: React.FC<AdminPromptFormProps> = ({
       'https://images.unsplash.com/photo-1507679799987-c73779587ccf?auto=format&fit=crop&w=800&q=80',
     ]
   );
-  //add this 
+  // Media upload & drag state
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [coverProgress, setCoverProgress] = useState(0);
+  const [isDraggingCover, setIsDraggingCover] = useState(false);
+
   const [uploadingVideo, setUploadingVideo] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [isDraggingVideo, setIsDraggingVideo] = useState(false);
+
   const [uploadingExamples, setUploadingExamples] = useState(false);
+  const [exampleProgress, setExampleProgress] = useState(0);
+  const [isDraggingExamples, setIsDraggingExamples] = useState(false);
+
+  const isUploadingMedia = uploadingCover || uploadingVideo || uploadingExamples;
 
   const [fullPrompt, setFullPrompt] = useState(initialPrompt?.full_prompt || '');
   const [negativePrompt, setNegativePrompt] = useState(initialPrompt?.negative_prompt || '');
@@ -95,133 +105,28 @@ export const AdminPromptForm: React.FC<AdminPromptFormProps> = ({
     }
   }, [accessType]);
 
-  //addtis
-  const handleVideoUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-
+  // Process Cover File
+  const processCoverFile = async (file: File) => {
     if (!file) return;
 
-    const allowedTypes = ['video/mp4', 'video/webm'];
-
-    if (!allowedTypes.includes(file.type)) {
-      showToast('Please select an MP4 or WebM video.', 'error');
-      e.target.value = '';
-      return;
-    }
-
-    if (file.size > 100 * 1024 * 1024) {
-      showToast('Demo video must be smaller than 100MB.', 'error');
-      e.target.value = '';
-      return;
-    }
-
-    setUploadingVideo(true);
-
-    try {
-      const url = await api.uploadMedia(file, 'videos');
-
-      if (!url) {
-        showToast('Failed to upload demo video.', 'error');
-        return;
-      }
-
-      setVideoUrl(url);
-
-      showToast('Demo video uploaded successfully.', 'success');
-    } catch (error) {
-      console.error('Video upload error:', error);
-      showToast('Failed to upload demo video.', 'error');
-    } finally {
-      setUploadingVideo(false);
-      e.target.value = '';
-    }
-  };
-  //add this
-  const handleExampleMediaUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-
-    if (!file) return;
-
-    const isImage = file.type.startsWith('image/');
-    const isVideo = ['video/mp4', 'video/webm'].includes(file.type);
-
-    if (!isImage && !isVideo) {
-      showToast('Please select an image, MP4, or WebM file.', 'error');
-      e.target.value = '';
-      return;
-    }
-
-    const maxSize = isVideo
-      ? 100 * 1024 * 1024
-      : 10 * 1024 * 1024;
-
-    if (file.size > maxSize) {
-      showToast(
-        isVideo
-          ? 'Video must be smaller than 100MB.'
-          : 'Image must be smaller than 10MB.',
-        'error'
-      );
-      e.target.value = '';
-      return;
-    }
-
-    setUploadingExamples(true);
-
-    try {
-      const url = await api.uploadMedia(file, 'examples');
-
-      if (!url) {
-        showToast('Failed to upload example media.', 'error');
-        return;
-      }
-
-      setExampleImages((current) => [...current, url]);
-
-      showToast('Example media uploaded successfully.', 'success');
-    } catch (error) {
-      console.error('Example media upload error:', error);
-      showToast('Failed to upload example media.', 'error');
-    } finally {
-      setUploadingExamples(false);
-      e.target.value = '';
-    }
-  };
-
-
-  const handleAddExampleImage = () => {
-    const url = prompt('Enter image or video URL:');
-
-    if (url) {
-      setExampleImages((current) => [...current, url]);
-    }
-  };
-
-  const handleCoverUpload = async (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    const file = e.target.files?.[0];
-
-    if (!file) return;
-
-    if (!file.type.startsWith('image/')) {
-      showToast('Please select an image file.', 'error');
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type) && !file.type.startsWith('image/')) {
+      showToast('Unsupported cover image format. Allowed: JPG, PNG, WebP, GIF.', 'error');
       return;
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      showToast('Cover image must be smaller than 10MB.', 'error');
+      showToast('Cover image size exceeds maximum limit of 10MB.', 'error');
       return;
     }
 
     setUploadingCover(true);
+    setCoverProgress(0);
 
     try {
-      const url = await api.uploadMedia(file, 'covers');
+      const url = await api.uploadMedia(file, 'covers', initialPrompt?.id, (pct) => {
+        setCoverProgress(pct);
+      });
 
       if (!url) {
         showToast('Failed to upload cover image.', 'error');
@@ -229,14 +134,124 @@ export const AdminPromptForm: React.FC<AdminPromptFormProps> = ({
       }
 
       setCoverImageUrl(url);
-
       showToast('Cover image uploaded successfully.', 'success');
     } catch (error) {
       console.error('Cover image upload error:', error);
       showToast('Failed to upload cover image.', 'error');
     } finally {
       setUploadingCover(false);
-      e.target.value = '';
+      setCoverProgress(0);
+    }
+  };
+
+  const handleCoverInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processCoverFile(file);
+    e.target.value = '';
+  };
+
+  // Process Video File
+  const processVideoFile = async (file: File) => {
+    if (!file) return;
+
+    const allowedTypes = ['video/mp4', 'video/webm'];
+    if (!allowedTypes.includes(file.type)) {
+      showToast('Unsupported demo video format. Allowed: MP4, WebM.', 'error');
+      return;
+    }
+
+    if (file.size > 100 * 1024 * 1024) {
+      showToast('Demo video size exceeds maximum limit of 100MB.', 'error');
+      return;
+    }
+
+    setUploadingVideo(true);
+    setVideoProgress(0);
+
+    try {
+      const url = await api.uploadMedia(file, 'videos', initialPrompt?.id, (pct) => {
+        setVideoProgress(pct);
+      });
+
+      if (!url) {
+        showToast('Failed to upload demo video.', 'error');
+        return;
+      }
+
+      setVideoUrl(url);
+      showToast('Demo video uploaded successfully.', 'success');
+    } catch (error) {
+      console.error('Video upload error:', error);
+      showToast('Failed to upload demo video.', 'error');
+    } finally {
+      setUploadingVideo(false);
+      setVideoProgress(0);
+    }
+  };
+
+  const handleVideoInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processVideoFile(file);
+    e.target.value = '';
+  };
+
+  // Process Example File
+  const processExampleFile = async (file: File) => {
+    if (!file) return;
+
+    const isImage = file.type.startsWith('image/');
+    const isVideo = ['video/mp4', 'video/webm'].includes(file.type);
+
+    if (!isImage && !isVideo) {
+      showToast('Unsupported format. Allowed: JPG, PNG, WebP, GIF, MP4, WebM.', 'error');
+      return;
+    }
+
+    const maxSize = isVideo ? 100 * 1024 * 1024 : 10 * 1024 * 1024;
+    if (file.size > maxSize) {
+      showToast(
+        isVideo
+          ? 'Example video size exceeds 100MB limit.'
+          : 'Example image size exceeds 10MB limit.',
+        'error'
+      );
+      return;
+    }
+
+    setUploadingExamples(true);
+    setExampleProgress(0);
+
+    try {
+      const url = await api.uploadMedia(file, 'examples', initialPrompt?.id, (pct) => {
+        setExampleProgress(pct);
+      });
+
+      if (!url) {
+        showToast('Failed to upload example media.', 'error');
+        return;
+      }
+
+      setExampleImages((current) => [...current, url]);
+      showToast('Example media uploaded successfully.', 'success');
+    } catch (error) {
+      console.error('Example media upload error:', error);
+      showToast('Failed to upload example media.', 'error');
+    } finally {
+      setUploadingExamples(false);
+      setExampleProgress(0);
+    }
+  };
+
+  const handleExampleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) processExampleFile(file);
+    e.target.value = '';
+  };
+
+  const handleAddExampleImage = () => {
+    const url = prompt('Enter image or video URL:');
+    if (url && url.trim()) {
+      setExampleImages((current) => [...current, url.trim()]);
     }
   };
 
@@ -245,6 +260,11 @@ export const AdminPromptForm: React.FC<AdminPromptFormProps> = ({
   };
 
   const handleSave = (targetStatus?: 'draft' | 'published') => {
+    if (isUploadingMedia) {
+      showToast('Please wait for media uploads to finish before saving.', 'error');
+      return;
+    }
+
     if (!title.trim() || !fullPrompt.trim()) {
       alert('Please fill in the title and master prompt content.');
       return;
@@ -373,18 +393,20 @@ export const AdminPromptForm: React.FC<AdminPromptFormProps> = ({
           </button>
           <button
             type="button"
+            disabled={isUploadingMedia}
             onClick={() => handleSave('draft')}
-            className="px-3.5 py-1.5 text-xs font-semibold text-neutral-800 bg-neutral-200 hover:bg-neutral-300 rounded-xl transition-colors cursor-pointer"
+            className="px-3.5 py-1.5 text-xs font-semibold text-neutral-800 bg-neutral-200 hover:bg-neutral-300 rounded-xl transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Save Draft
+            {isUploadingMedia ? 'Uploading...' : 'Save Draft'}
           </button>
           <button
             type="button"
+            disabled={isUploadingMedia}
             onClick={() => handleSave('published')}
-            className="px-4 py-1.5 text-xs font-semibold text-[#111111] bg-[#B8FF3D] hover:bg-[#a6ee2d] rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+            className="px-4 py-1.5 text-xs font-semibold text-[#111111] bg-[#B8FF3D] hover:bg-[#a6ee2d] rounded-xl transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Save className="w-3.5 h-3.5" />
-            <span>Publish Prompt</span>
+            <span>{isUploadingMedia ? 'Uploading media...' : 'Publish Prompt'}</span>
           </button>
         </div>
       </div>
@@ -568,186 +590,253 @@ export const AdminPromptForm: React.FC<AdminPromptFormProps> = ({
             </div>
           </div>
 
-          {/* Section 4: Media & Demonstrations */}
-          <div className="bg-white border border-[#E7E7E3] rounded-2xl p-6 shadow-xs space-y-4">
+          {/* Section 4: Media & Video Demonstrations */}
+          <div className="bg-white border border-[#E7E7E3] rounded-2xl p-6 shadow-xs space-y-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-[#111111]">
               4. Media & Video Demonstrations
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* <div>
-                <label className="block text-xs font-medium text-[#666666] mb-1">Cover Image URL *</label>
-                <input
-                  type="url"
-                  required
-                  placeholder="https://images.unsplash.com/..."
-                  value={coverImageUrl}
-                  onChange={(e) => setCoverImageUrl(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-neutral-50 border border-[#E7E7E3] rounded-xl focus:outline-none focus:border-[#111111]"
-                />
-              </div> */}
-              <div>
-                <label className="block text-xs font-medium text-[#666666] mb-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Cover Image Uploader & URL */}
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-[#666666]">
                   Cover Image *
                 </label>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Upload from computer */}
-                  <div>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      onChange={handleCoverUpload}
-                      disabled={uploadingCover}
-                      className="w-full text-xs text-[#666666]
-          file:mr-3 file:px-3 file:py-2
-          file:rounded-lg file:border-0
-          file:bg-[#111111] file:text-white
-          file:text-xs file:font-medium
-          hover:file:bg-[#333333]
-          disabled:opacity-50"
-                    />
+                {/* Dropzone */}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingCover(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingCover(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingCover(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) processCoverFile(file);
+                  }}
+                  className={`relative border-2 border-dashed rounded-xl p-4 text-center transition-all ${
+                    isDraggingCover
+                      ? 'border-[#111111] bg-neutral-100/80 scale-[0.99]'
+                      : 'border-[#E7E7E3] bg-neutral-50 hover:border-[#111111]'
+                  }`}
+                >
+                  <Upload className="w-5 h-5 mx-auto text-neutral-400 mb-1" />
+                  <p className="text-xs font-medium text-[#111111]">
+                    Drag & drop cover image or{' '}
+                    <label className="text-blue-600 underline cursor-pointer font-semibold">
+                      browse
+                      <input
+                        type="file"
+                        accept="image/jpeg,image/png,image/webp,image/gif"
+                        onChange={handleCoverInputChange}
+                        disabled={uploadingCover}
+                        className="hidden"
+                      />
+                    </label>
+                  </p>
+                  <p className="text-[11px] text-[#8A8A8A] mt-0.5">
+                    JPG, PNG, WebP, GIF • Max 10MB
+                  </p>
 
-                    {uploadingCover && (
-                      <p className="mt-1 text-[11px] text-[#888888]">
-                        Uploading cover image...
+                  {uploadingCover && (
+                    <div className="mt-3 space-y-1">
+                      <div className="w-full bg-neutral-200 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className="bg-[#111111] h-full transition-all duration-200"
+                          style={{ width: `${coverProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] font-mono text-[#666666]">
+                        Uploading cover... {coverProgress}%
                       </p>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                </div>
 
-                  {/* External URL */}
+                {/* URL Input Fallback */}
+                <div className="pt-1">
+                  <span className="block text-[11px] font-medium text-[#8A8A8A] mb-1">
+                    Or paste Image URL:
+                  </span>
                   <input
                     type="url"
-                    placeholder="Or paste image URL..."
+                    placeholder="https://images.unsplash.com/..."
                     value={coverImageUrl}
                     onChange={(e) => setCoverImageUrl(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-neutral-50 border border-[#E7E7E3] rounded-xl focus:outline-none focus:border-[#111111]"
                   />
                 </div>
 
-                {/* Preview */}
+                {/* Cover Image Preview */}
                 {coverImageUrl && (
-                  <div className="mt-3 overflow-hidden rounded-xl border border-[#E7E7E3]">
+                  <div className="relative mt-2 rounded-xl overflow-hidden border border-[#E7E7E3] group bg-neutral-100">
                     <img
                       src={coverImageUrl}
                       alt="Cover preview"
-                      className="w-full h-48 object-cover"
+                      className="w-full h-44 object-cover"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src =
+                          'https://via.placeholder.com/600x400?text=Invalid+Image+URL';
+                      }}
                     />
+                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setCoverImageUrl('')}
+                        className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* <div>
-                <label className="block text-xs font-medium text-[#666666] mb-1">
-                  Demo Video URL (MP4 / WebM or leave empty for simulated visual demo)
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://assets.mixkit.co/videos/... or leave blank"
-                  value={videoUrl}
-                  onChange={(e) => setVideoUrl(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-neutral-50 border border-[#E7E7E3] rounded-xl focus:outline-none focus:border-[#111111]"
-                />
-              </div> */}
-              <div>
-                <label className="block text-xs font-medium text-[#666666] mb-1">
-                  Demo Video
+              {/* Demo Video Uploader & URL */}
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-[#666666]">
+                  Demo Video (MP4 / WebM)
                 </label>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {/* Upload video */}
-                  <div>
-                    <input
-                      type="file"
-                      accept="video/mp4,video/webm"
-                      onChange={handleVideoUpload}
-                      disabled={uploadingVideo}
-                      className="w-full text-xs text-[#666666]
-          file:mr-3 file:px-3 file:py-2
-          file:rounded-lg file:border-0
-          file:bg-[#111111] file:text-white
-          file:text-xs file:font-medium
-          hover:file:bg-[#333333]
-          disabled:opacity-50"
-                    />
+                {/* Dropzone */}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingVideo(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingVideo(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDraggingVideo(false);
+                    const file = e.dataTransfer.files?.[0];
+                    if (file) processVideoFile(file);
+                  }}
+                  className={`relative border-2 border-dashed rounded-xl p-4 text-center transition-all ${
+                    isDraggingVideo
+                      ? 'border-[#111111] bg-neutral-100/80 scale-[0.99]'
+                      : 'border-[#E7E7E3] bg-neutral-50 hover:border-[#111111]'
+                  }`}
+                >
+                  <Upload className="w-5 h-5 mx-auto text-neutral-400 mb-1" />
+                  <p className="text-xs font-medium text-[#111111]">
+                    Drag & drop demo video or{' '}
+                    <label className="text-blue-600 underline cursor-pointer font-semibold">
+                      browse
+                      <input
+                        type="file"
+                        accept="video/mp4,video/webm"
+                        onChange={handleVideoInputChange}
+                        disabled={uploadingVideo}
+                        className="hidden"
+                      />
+                    </label>
+                  </p>
+                  <p className="text-[11px] text-[#8A8A8A] mt-0.5">
+                    MP4, WebM • Max 100MB
+                  </p>
 
-                    {uploadingVideo && (
-                      <p className="mt-1 text-[11px] text-[#888888]">
-                        Uploading demo video...
+                  {uploadingVideo && (
+                    <div className="mt-3 space-y-1">
+                      <div className="w-full bg-neutral-200 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          className="bg-[#111111] h-full transition-all duration-200"
+                          style={{ width: `${videoProgress}%` }}
+                        />
+                      </div>
+                      <p className="text-[11px] font-mono text-[#666666]">
+                        Uploading video... {videoProgress}%
                       </p>
-                    )}
-                  </div>
+                    </div>
+                  )}
+                </div>
 
-                  {/* External URL */}
+                {/* URL Input Fallback */}
+                <div className="pt-1">
+                  <span className="block text-[11px] font-medium text-[#8A8A8A] mb-1">
+                    Or paste Video URL:
+                  </span>
                   <input
                     type="url"
-                    placeholder="Or paste MP4 / WebM URL..."
+                    placeholder="https://assets.mixkit.co/videos/... or leave blank"
                     value={videoUrl}
                     onChange={(e) => setVideoUrl(e.target.value)}
                     className="w-full px-3 py-2 text-xs bg-neutral-50 border border-[#E7E7E3] rounded-xl focus:outline-none focus:border-[#111111]"
                   />
                 </div>
 
-                {/* Video preview */}
+                {/* Video Preview */}
                 {videoUrl && (
-                  <div className="mt-3 overflow-hidden rounded-xl border border-[#E7E7E3] bg-black">
+                  <div className="relative mt-2 rounded-xl overflow-hidden border border-[#E7E7E3] bg-black group">
                     <video
                       src={videoUrl}
                       controls
                       muted
                       playsInline
-                      className="w-full max-h-72 object-contain"
+                      preload="metadata"
+                      className="w-full max-h-44 object-contain"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setVideoUrl('')}
+                      className="absolute top-2 right-2 p-1.5 bg-black/70 text-white rounded-lg hover:bg-red-600 transition-colors cursor-pointer"
+                      title="Remove Video"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </div>
                 )}
               </div>
             </div>
 
-            <div>
-              {/* <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-medium text-[#666666]">
-                  Example Output Media ({exampleImages.length})
-                </label>
-                <button
-                  type="button"
-                  onClick={handleAddExampleImage}
-                  className="text-xs font-semibold text-[#111111] hover:underline flex items-center gap-1 cursor-pointer"
-                >
-                  <Plus className="w-3 h-3" />
-                  <span>Add Media URL</span>
-                </button>
-              </div> */}
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-xs font-medium text-[#666666]">
-                  Example Output Media ({exampleImages.length})
-                </label>
+            {/* Example Output Media */}
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-xs font-medium text-[#666666]">
+                    Example Output Media ({exampleImages.length})
+                  </label>
+                  <p className="text-[11px] text-[#8A8A8A]">
+                    Upload sample outputs or paste external URLs. Supports images (Max 10MB) & videos (Max 100MB).
+                  </p>
+                </div>
 
-                <div className="flex items-center gap-1.5">
-                  {/* Upload Media */}
+                <div className="flex items-center gap-2">
                   <label
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-[#111111] text-white text-xs font-medium transition-all ${uploadingExamples
-                      ? 'opacity-50 cursor-not-allowed'
-                      : 'cursor-pointer hover:bg-[#2A2A2A]'
-                      }`}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#111111] text-white text-xs font-medium transition-all ${
+                      uploadingExamples
+                        ? 'opacity-50 cursor-not-allowed'
+                        : 'cursor-pointer hover:bg-[#2A2A2A]'
+                    }`}
                   >
                     <Upload className="w-3.5 h-3.5" />
-                    <span>
-                      {uploadingExamples ? 'Uploading...' : 'Upload Media'}
-                    </span>
-
+                    <span>{uploadingExamples ? 'Uploading...' : 'Upload Media'}</span>
                     <input
                       type="file"
                       accept="image/*,video/mp4,video/webm"
-                      onChange={handleExampleMediaUpload}
+                      onChange={handleExampleInputChange}
                       disabled={uploadingExamples}
                       className="hidden"
                     />
                   </label>
 
-                  {/* Add Media URL */}
                   <button
                     type="button"
                     onClick={handleAddExampleImage}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-[#E5E5E5] bg-white text-[#444444] text-xs font-medium hover:bg-[#F7F7F7] hover:text-[#111111] transition-all cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#E7E7E3] bg-white text-[#111111] text-xs font-medium hover:bg-neutral-50 transition-colors cursor-pointer"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>Add Media URL</span>
@@ -755,29 +844,84 @@ export const AdminPromptForm: React.FC<AdminPromptFormProps> = ({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {/* Example Drag & Drop Area */}
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingExamples(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingExamples(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingExamples(false);
+                  const file = e.dataTransfer.files?.[0];
+                  if (file) processExampleFile(file);
+                }}
+                className={`border-2 border-dashed rounded-xl p-3 text-center transition-all ${
+                  isDraggingExamples
+                    ? 'border-[#111111] bg-neutral-100/80'
+                    : 'border-[#E7E7E3] bg-neutral-50 hover:border-[#111111]'
+                }`}
+              >
+                <p className="text-xs text-[#666666]">
+                  Drag & drop extra sample image or video here to add to gallery
+                </p>
+                {uploadingExamples && (
+                  <div className="mt-2 max-w-xs mx-auto space-y-1">
+                    <div className="w-full bg-neutral-200 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        className="bg-[#111111] h-full transition-all duration-200"
+                        style={{ width: `${exampleProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-[11px] font-mono text-[#666666]">
+                      Uploading sample... {exampleProgress}%
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Grid of Example Media */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
                 {exampleImages.map((img, i) => {
                   const isVideo = img.toLowerCase().match(/\.(mp4|webm)$/i);
                   return (
-                    <div key={i} className="relative aspect-video rounded-lg overflow-hidden border border-[#E7E7E3] group">
+                    <div
+                      key={i}
+                      className="relative aspect-video rounded-xl overflow-hidden border border-[#E7E7E3] bg-black group"
+                    >
                       {isVideo ? (
                         <video
                           src={img}
                           className="w-full h-full object-cover"
-                          autoPlay
-                          loop
+                          controls
                           muted
                           playsInline
                         />
                       ) : (
-                        <img src={img} alt="example" className="w-full h-full object-cover" />
+                        <img
+                          src={img}
+                          alt={`Example ${i + 1}`}
+                          className="w-full h-full object-cover"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src =
+                              'https://via.placeholder.com/400x225?text=Invalid+Media+URL';
+                          }}
+                        />
                       )}
                       <button
                         type="button"
                         onClick={() => handleRemoveExampleImage(i)}
-                        className="absolute top-1 right-1 p-1 bg-black/70 text-white rounded hover:bg-red-600 transition-colors cursor-pointer"
+                        className="absolute top-1.5 right-1.5 p-1 bg-black/70 text-white rounded-lg hover:bg-red-600 transition-colors cursor-pointer"
+                        title="Remove"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   );
@@ -937,10 +1081,17 @@ export const AdminPromptForm: React.FC<AdminPromptFormProps> = ({
             </button>
             <button
               type="submit"
-              className="px-6 py-2.5 text-xs font-semibold text-[#111111] bg-[#B8FF3D] hover:bg-[#a6ee2d] rounded-xl transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
+              disabled={isUploadingMedia}
+              className="px-6 py-2.5 text-xs font-semibold text-[#111111] bg-[#B8FF3D] hover:bg-[#a6ee2d] rounded-xl transition-colors flex items-center gap-2 cursor-pointer shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="w-4 h-4" />
-              <span>{initialPrompt ? 'Save Changes' : 'Create & Publish'}</span>
+              <span>
+                {isUploadingMedia
+                  ? 'Uploading media...'
+                  : initialPrompt
+                  ? 'Save Changes'
+                  : 'Create & Publish'}
+              </span>
             </button>
           </div>
         </form>

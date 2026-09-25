@@ -116,8 +116,9 @@ export async function verifyPaymentSignature(
       created_at: new Date().toISOString(),
     };
 
-    if (api.supabase) {
-      await api.supabase.from('purchases').insert(purchase);
+    const client = api.supabase;
+    if (client) {
+      await client.from('purchases').insert(purchase);
     }
 
     return {

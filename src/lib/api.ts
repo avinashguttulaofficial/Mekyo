@@ -189,3 +189,70 @@ export async function updateMessageStatus(id: string, status: string): Promise<v
   if (!supabase) return;
   await supabase.from('contact_messages').update({ status }).eq('id', id);
 }
+
+// Media Upload
+export async function uploadMedia(
+  file: File,
+  folder: 'covers' | 'videos' | 'examples' = 'covers',
+  promptId?: string,
+  onProgress?: (progress: number) => void
+): Promise<string | null> {
+  if (onProgress) onProgress(10);
+
+  if (!supabase) {
+    console.warn('Supabase client is not configured. Falling back to Object URL for local preview.');
+    if (onProgress) {
+      onProgress(50);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      onProgress(100);
+    }
+    return URL.createObjectURL(file);
+  }
+
+  // Create safe unique filename
+  const timestamp = Date.now();
+  const randomStr = Math.random().toString(36).substring(2, 8);
+  const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const safeFilename = `${timestamp}_${randomStr}_${cleanName}`;
+  const filePath = promptId
+    ? `${folder}/${promptId}/${safeFilename}`
+    : `${folder}/${safeFilename}`;
+
+  let progressInterval: any = null;
+  if (onProgress) {
+    let currentProgress = 15;
+    progressInterval = setInterval(() => {
+      currentProgress = Math.min(currentProgress + 15, 90);
+      onProgress(currentProgress);
+    }, 120);
+  }
+
+  try {
+    const { data, error } = await supabase.storage
+      .from('prompt-media')
+      .upload(filePath, file, {
+        cacheControl: '3600',
+        upsert: true,
+      });
+
+    if (progressInterval) clearInterval(progressInterval);
+
+    if (error) {
+      console.error('Supabase storage upload error:', error);
+      throw error;
+    }
+
+    if (onProgress) onProgress(100);
+
+    const { data: publicUrlData } = supabase.storage
+      .from('prompt-media')
+      .getPublicUrl(data.path);
+
+    return publicUrlData.publicUrl;
+  } catch (err) {
+    if (progressInterval) clearInterval(progressInterval);
+    console.error('Upload media failed:', err);
+    throw err;
+  }
+}
+
