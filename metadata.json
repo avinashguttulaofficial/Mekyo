@@ -1,0 +1,6 @@
+{
+  "name": "Mekyo - Premium AI Prompt Marketplace",
+  "description": "Discover premium AI prompts with real examples, video demonstrations, and production-ready instructions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
